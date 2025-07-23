@@ -1,0 +1,16 @@
+proyecto_deforestacion/
+├── data/
+│   ├── raw/          # Aquí guardarás los datos satelitales originales sin tocar.
+│   ├── processed/    # Aquí tu script guardará las imágenes preprocesadas.
+│   └── ground_truth/ # Aquí guardarás los archivos vectoriales (shapefiles) con las zonas etiquetadas.
+│
+├── notebooks/        # Para los Jupyter Notebooks de experimentación.
+│
+├── src/              # Para tu código fuente principal (.py).
+│   ├── __init__.py   # Convierte la carpeta en un paquete de Python.
+│   ├── producto.py   # Aquí irán tus clases base y específicas (Producto_Satelital_Base, ProductoSPOT6).
+│   └── procesador.py # Aquí irá tu clase ProcesadorImagenes.
+│
+├── docs/             # Para la documentación (aquí puedes guardar tu Estado del Arte en PDF).
+│
+└── .gitignore        # (Opcional, pero recomendado para el futuro con Git) Archivo para ignorar carpetas como .venv o data/.
