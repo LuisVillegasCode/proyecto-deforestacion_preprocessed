@@ -12,9 +12,12 @@ __pycache__/
 *.DS_Store
 
 # Archivos de datos generados y datos crudos
-data/processed/
-data/raw/
-*.vrt
+# Ignorar el contenido de las carpetas de datos, pero mantener las carpetas
+data/raw/*
+!data/raw/.gitkeep
+
+data/processed/*
+!data/processed/.gitkeep
 
 # Archivos de proyectos de QGIS y análisis
 calidad_preprocessed/
