@@ -2,6 +2,10 @@
 
 """
 Módulo para la definición de clases que manejan productos de datos satelitales.
+
+Contiene una clase base abstracta (Producto_Satelital_Base) que define una interfaz
+común para todos los tipos de satélite, y clases concretas (ej. ProductoSPOT6) que
+implementan la lógica específica para cada satélite agregado.
 """
 
 # --- Importaciones ---
@@ -24,6 +28,10 @@ class Producto_Satelital_Base(ABC):
     def __init__(self, ruta_producto: Path, ruta_salida: Path):
         """
         Inicializa el objeto del producto satelital.
+
+        Args:
+            ruta_producto (Path): Ruta a la carpeta principal del producto crudo.
+            ruta_salida (Path): Ruta a la carpeta donde se guardarán los resultados.
         """
         if not ruta_producto.is_dir():
             raise FileNotFoundError(f"La ruta del producto no existe: {ruta_producto}")
@@ -35,15 +43,20 @@ class Producto_Satelital_Base(ABC):
         self._leer_metadatos()
 
     @abstractmethod
-    def _leer_metadatos(self): pass
+    def _leer_metadatos(self):
+        """Método abstracto para leer los metadatos específicos del satélite."""
+        pass
 
     @abstractmethod
-    def ejecutar_preprocesamiento(self): pass
+    def ejecutar_preprocesamiento(self):
+        """Método abstracto que ejecuta el pipeline de preprocesamiento completo."""
+        pass
 
 # --- Clase Concreta para SPOT 6 ---
 class ProductoSPOT6(Producto_Satelital_Base):
     """
-    Implementación específica para productos SPOT 6.
+    Implementación específica para productos SPOT 6. Contiene toda la lógica
+    para leer, procesar y guardar los datos de este satélite.
     """
     def _leer_metadatos(self):
         """
@@ -69,7 +82,21 @@ class ProductoSPOT6(Producto_Satelital_Base):
         print(f"Metadatos de {self.ruta_base.name} cargados exitosamente.")
 
     def _calibrar_bloque(self, block_dn: np.ndarray) -> np.ndarray:
-        """Realiza la calibración radiométrica en un bloque de datos."""
+        """Realiza la calibración radiométrica en un bloque de datos (DN a Radiancia).
+
+        Este método aplica la fórmula de conversión oficial (Radiancia = DN / Ganancia + Bias)
+        proporcionada por el proveedor del satélite en el archivo de metadatos XML.
+        Transforma los Niveles Digitales (DN) crudos, que son adimensionales, en valores 
+        de Radiancia en el Techo de la Atmósfera (TOA), una unidad de energía física.
+
+        Args:
+            block_dn (np.ndarray): Bloque de datos de entrada en formato de
+                                Niveles Digitales (enteros).
+
+        Returns:
+            np.ndarray: Bloque de datos convertido a Radiancia TOA, en formato
+                        de punto flotante (float32).
+        """
         block_rad = np.zeros_like(block_dn, dtype=np.float32)
         for i in range(block_dn.shape[0]):
             band_id = self.metadatos['band_order'][i]
@@ -78,7 +105,15 @@ class ProductoSPOT6(Producto_Satelital_Base):
         return block_rad
 
     def _corregir_atmosfericamente_bloque(self, block_rad: np.ndarray) -> np.ndarray:
-        """Realiza la corrección atmosférica en un bloque de datos."""
+        """
+        Realiza la corrección atmosférica (Radiancia a Reflectancia) con DOS1.
+
+        Args:
+            block_rad (np.ndarray): Bloque de datos en Radiancia TOA.
+
+        Returns:
+            np.ndarray: Bloque de datos convertido a Reflectancia de Superficie.
+        """
         sun_zenith = 90.0 - self.metadatos['elevacion_solar']
         block_ref = np.zeros_like(block_rad, dtype=np.float32)
         for i in range(block_rad.shape[0]):
@@ -92,7 +127,16 @@ class ProductoSPOT6(Producto_Satelital_Base):
         return block_ref
 
     def _finalizar_bloque(self, block_ref: np.ndarray, block_mask: np.ndarray) -> np.ndarray:
-        """Aplica la máscara de nubes y escala el bloque para el guardado final."""
+        """
+        Aplica la máscara de nubes y escala el bloque para el guardado final (UInt16).
+
+        Args:
+            block_ref (np.ndarray): Bloque de datos en Reflectancia de Superficie.
+            block_mask (np.ndarray): Máscara booleana de nubes para el bloque actual.
+
+        Returns:
+            np.ndarray: Bloque de datos final, enmascarado y escalado a UInt16.
+        """
         block_ref[np.stack([block_mask]*block_ref.shape[0])] = 0.0
         block_scaled = (np.clip(block_ref, 0, 1) * 10000).astype(rasterio.uint16)
         return block_scaled
@@ -100,6 +144,13 @@ class ProductoSPOT6(Producto_Satelital_Base):
     def _procesar_bloque(self, block_dn: np.ndarray, block_mask: np.ndarray) -> np.ndarray:
         """
         Orquesta el procesamiento completo para un único bloque de datos.
+
+        Args:
+            block_dn (np.ndarray): Bloque de datos crudos en DN.
+            block_mask (np.ndarray): Máscara booleana de nubes para el bloque.
+
+        Returns:
+            np.ndarray: Bloque de datos final y procesado.
         """
         block_rad = self._calibrar_bloque(block_dn)
         block_ref = self._corregir_atmosfericamente_bloque(block_rad)
@@ -109,6 +160,18 @@ class ProductoSPOT6(Producto_Satelital_Base):
     def ejecutar_preprocesamiento(self):
         """
         Método principal que gestiona el flujo de E/S y el bucle de procesamiento por bloques.
+
+        Estrategia de Optimización:
+        - Gestión de RAM: El procesamiento se realiza bloque por bloque para garantizar un uso
+          de memoria RAM bajo y constante, permitiendo procesar imágenes de cualquier tamaño.
+        - Velocidad de Ejecución: La implementación actual es secuencial (un bloque a la vez),
+          por lo que la velocidad depende del rendimiento de un solo núcleo de CPU.
+        
+        Mejora a Futuro:
+        - Para acelerar el procesamiento de una única imagen, se podría paralelizar este
+          bucle, distribuyendo los bloques entre múltiples núcleos de CPU (ej. con la
+          librería 'multiprocessing' o 'Dask'). Por ahora, se prioriza la paralelización
+          a nivel de lote de imágenes (una imagen por núcleo).
         """
         print(f"--- Iniciando Pipeline de Preprocesamiento por Bloques para: {self.ruta_base.name} ---")
         
@@ -141,7 +204,6 @@ class ProductoSPOT6(Producto_Satelital_Base):
                     block_dn = src.read(window=window)
                     block_mask = cloud_mask_refinada[window.row_off:window.row_off+window.height, window.col_off:window.col_off+window.width]
                     
-                    # Llama al orquestador para que procese el bloque
                     block_procesado = self._procesar_bloque(block_dn, block_mask)
                     
                     dst.write(block_procesado, window=window)
