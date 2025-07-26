@@ -157,56 +157,11 @@ class ProductoSPOT6(Producto_Satelital_Base):
         block_final = self._finalizar_bloque(block_ref, block_mask)
         return block_final
 
-    def ejecutar_preprocesamiento(self):
+    def procesar_bloque(self, block_dn: np.ndarray, block_mask: np.ndarray) -> np.ndarray:
         """
-        Método principal que gestiona el flujo de E/S y el bucle de procesamiento por bloques.
-
-        Estrategia de Optimización:
-        - Gestión de RAM: El procesamiento se realiza bloque por bloque para garantizar un uso
-          de memoria RAM bajo y constante, permitiendo procesar imágenes de cualquier tamaño.
-        - Velocidad de Ejecución: La implementación actual es secuencial (un bloque a la vez),
-          por lo que la velocidad depende del rendimiento de un solo núcleo de CPU.
-        
-        Mejora a Futuro:
-        - Para acelerar el procesamiento de una única imagen, se podría paralelizar este
-          bucle, distribuyendo los bloques entre múltiples núcleos de CPU (ej. con la
-          librería 'multiprocessing' o 'Dask'). Por ahora, se prioriza la paralelización
-          a nivel de lote de imágenes (una imagen por núcleo).
+        Orquesta el procesamiento completo para un único bloque de datos.
         """
-        print(f"--- Iniciando Pipeline de Preprocesamiento por Bloques para: {self.ruta_base.name} ---")
-        
-        vrt_path = self.ruta_salida_producto / 'source.vrt'
-        src_files_to_mosaic = [rasterio.open(fp) for fp in self.metadatos['rutas_tifs']]
-        merge(src_files_to_mosaic, dst_path=str(vrt_path))
-        
-        with rasterio.open(vrt_path) as src:
-            profile = src.profile
-            profile.update(dtype=rasterio.uint16, nodata=0, compress=None, tiled=True, blockxsize=512, blockysize=512)
-            path_final = self.ruta_salida_producto / 'analysis_ready_data.tif'
-
-            print("  -> Preparando máscara de nubes...")
-            ruta_mascara_gml = self.metadatos.get('mascara_nubes_gml')
-            if ruta_mascara_gml and ruta_mascara_gml.exists():
-                gdf_clouds = gpd.read_file(ruta_mascara_gml)
-                cloud_mask_base = rasterize(
-                    shapes=gdf_clouds.geometry, out_shape=src.shape, transform=src.transform,
-                    fill=0, all_touched=True, dtype=np.uint8
-                ).astype(bool)
-                cloud_mask_refinada = binary_dilation(cloud_mask_base, iterations=5)
-            else:
-                cloud_mask_refinada = np.zeros(src.shape, dtype=bool)
-                print("     Advertencia: No se encontró máscara de nubes.")
-
-            with rasterio.open(path_final, 'w', **profile) as dst:
-                for ji, window in src.block_windows(1):
-                    print(f"     Procesando bloque {ji[0]+1}/{len(list(src.block_windows(1)))}")
-                    
-                    block_dn = src.read(window=window)
-                    block_mask = cloud_mask_refinada[window.row_off:window.row_off+window.height, window.col_off:window.col_off+window.width]
-                    
-                    block_procesado = self._procesar_bloque(block_dn, block_mask)
-                    
-                    dst.write(block_procesado, window=window)
-
-        print(f"--- Pipeline Finalizado. Producto final guardado en: {path_final} ---")
-        return path_final
+        block_rad = self._calibrar_bloque(block_dn)
+        block_ref = self._corregir_atmosfericamente_bloque(block_rad)
+        block_final = self._finalizar_bloque(block_ref, block_mask)
+        return block_final
