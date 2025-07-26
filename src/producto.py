@@ -160,6 +160,25 @@ class ProductoSPOT6(Producto_Satelital_Base):
     def procesar_bloque(self, block_dn: np.ndarray, block_mask: np.ndarray) -> np.ndarray:
         """
         Orquesta el procesamiento completo para un único bloque de datos.
+
+        Este método actúa como un pipeline secuencial para un bloque individual,
+        llamando a los métodos especializados de calibración, corrección
+        atmosférica y finalización en el orden correcto.
+
+        Args:
+            block_dn (np.ndarray): Bloque de datos crudos en Niveles Digitales (DN).
+            block_mask (np.ndarray): Máscara booleana de nubes para el bloque.
+
+        Returns:
+            np.ndarray: Bloque de datos final y procesado, listo para ser escrito.
+
+        Notes on Optimization and Development:
+            La versión actual en la rama 'main' procesa los bloques de forma
+            secuencial. Para acelerar el tiempo de ejecución de una sola imagen,
+            se está desarrollando una optimización en la rama 'feat/parallel-processing'.
+            El objetivo de dicha rama es introducir 'multiprocessing' para que esta
+            función 'procesar_bloque' sea ejecutada de forma simultánea en
+            múltiples núcleos de CPU, reduciendo significativamente el tiempo total.
         """
         block_rad = self._calibrar_bloque(block_dn)
         block_ref = self._corregir_atmosfericamente_bloque(block_rad)
